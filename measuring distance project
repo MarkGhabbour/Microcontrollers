@@ -1,0 +1,233 @@
+
+#include "tm4c123gh6pm.h"
+#include "stdint.h"
+
+
+uint32_t timer=0;
+
+void SystemInit(){}
+
+void wait(uint32_t delay)
+{
+	NVIC_ST_CTRL_R = 0;
+	NVIC_ST_RELOAD_R=delay-1;
+	NVIC_ST_CURRENT_R=0;
+	NVIC_ST_CTRL_R=0x05;
+
+	while((NVIC_ST_CTRL_R &(1<<16))==0);
+		NVIC_ST_CTRL_R= 0;
+
+}
+void wait_10msec(uint32_t delay)
+{
+	uint32_t i;
+	for(i=0;i<delay;i++)
+	wait(800000);
+
+}
+
+
+void clock_init(int clk)
+{
+    int SYSVID = (400/clk)-1;
+
+    if(SYSVID<4) SYSVID=4;
+    if(SYSVID>16) SYSVID=16;
+
+
+    SYSCTL_RCC2_R |= (unsigned long)1<<31; // enable rcc2 to override rcc
+    SYSCTL_RCC2_R |= 1<<11; //enable 16 mhz clock to make the system operatable at first
+    SYSCTL_RCC_R = (SYSCTL_RCC_R & (~0x000007C0)) + 0x540; // put 0x15 at XTAL to adjust it to the 16 mhz crystal
+    SYSCTL_RCC2_R &= ~(7<<4);
+    SYSCTL_RCC2_R &= ~(1<<13);
+    SYSCTL_RCC2_R |= 1<<30;
+    SYSCTL_RCC2_R = (SYSCTL_RCC2_R & (~0x1FC00000)) + (SYSVID<<22); //put value of XTAL
+    while(SYSCTL_RIS_R & 1<<6); //wait for pll to be stable
+    SYSCTL_RCC2_R &= ~(1<<11); //make the system use pll
+
+}
+
+/*=========================== Initialize port A,B,D,E =====================*/
+
+void GPIO_Init(void)
+{
+		int dummy;
+		//SYSCTL_RCC_R  |= 	(1<<4);																				 //USING PIOSC for clock source with freq 16 MHz, page 255 in data sheet
+		//SYSCTL_RCC_R  &= ~(1<<5);
+	
+		SYSCTL_RCGCGPIO_R = 1 | (1<<5) | (1<<1) |(1<<3) |(1<<4);  												 // Enable port B,D,E,F
+		dummy=0;
+		dummy=1;
+		
+		//portB 0,1,2,3 for units display
+		GPIO_PORTB_LOCK_R = 0x4C4F434B;
+		GPIO_PORTB_CR_R=0xFF;
+		GPIO_PORTB_DIR_R |= 1 | (1<<1) | (1<<2) | (1<<3);
+		GPIO_PORTB_DEN_R |= 1 | (1<<1) | (1<<2) | (1<<3);
+	
+
+		//portD 0,1,2,3 for tens display
+		GPIO_PORTD_LOCK_R = 0x4C4F434B;
+		GPIO_PORTD_CR_R=0xFF;
+		GPIO_PORTD_DIR_R = 1 | (1<<1) | (1<<2) | (1<<3) ;
+		GPIO_PORTD_DIR_R &= ~(1<<7);
+		GPIO_PORTD_DEN_R |= 1 | (1<<1) | (1<<2) | (1<<3)| (1<<7);
+	  
+	
+		//portE 1,2,3,4 for hundreds display
+		GPIO_PORTE_LOCK_R = 0x4C4F434B;
+		GPIO_PORTE_CR_R   = 0xFF;
+		GPIO_PORTE_DIR_R |= (1<<1)  | (1<<2) | (1<<3) | (1<<4);
+		GPIO_PORTE_DEN_R |= (1<<1)  | (1<<2) | (1<<3) | (1<<4);
+		
+		//portF2 for trigger
+		GPIO_PORTF_LOCK_R = 0x4C4F434B;
+		GPIO_PORTF_CR_R   = 0xFF;
+					
+		GPIO_PORTF_DIR_R |=    (1<<2); 				  
+		GPIO_PORTF_DEN_R |=    (1<<2);   
+
+		GPIO_PORTA_LOCK_R = 0x4C4F434B;
+		GPIO_PORTA_CR_R=0xFF;
+		GPIO_PORTA_DIR_R |= 1<<2;
+		GPIO_PORTA_DEN_R |= 1<<2;
+		
+		
+}
+
+
+
+
+/*============================= Initialize Timer ========================*/
+
+void Systick_Init(void)
+{
+	NVIC_ST_CTRL_R = 0; 
+	NVIC_ST_RELOAD_R = 0xFFFFFF;  
+	NVIC_ST_CURRENT_R = 0x000000;
+	//NVIC_ST_CTRL_R=0x05;
+	
+}
+
+
+
+void get_distance(void)
+{
+	uint32_t time_now ;
+	uint32_t distance ;
+	uint32_t micro_seconds;
+
+	/* Set Trigger pulse */
+	
+	GPIO_PORTF_DATA_R |= 1<<2 ; //output 1 to trigger
+	wait(1000);
+	
+	GPIO_PORTF_DATA_R &= ~(1<<2); //output 0 to trig, pulse ended
+
+	// Start Testing
+	NVIC_ST_CTRL_R = 0x0;
+	
+	// End Testing
+	
+	while(  ((  GPIO_PORTD_DATA_R & (1<<7) )>>7   )==0) ;  // echo goes from low to high
+	NVIC_ST_RELOAD_R = 0xFFFFFF;
+	NVIC_ST_CURRENT_R = 0x0;
+	NVIC_ST_CTRL_R = 0x05;
+	while(  ((  GPIO_PORTD_DATA_R & (1<<7) )>>7   )!=0) ;  // echo goes from HIGH to LOW
+
+	
+
+	// Start Testing
+
+  distance = (0xFFFFFF-NVIC_ST_CURRENT_R);
+	distance /= 4640;
+	//if(distance>7) GPIO_PORTA_DATA_R |= 1<<2;
+	//distance=timer;
+	//timer++;
+	// End Testing
+	
+	/*micro_seconds=0;
+	while(  (  GPIO_PORTD_DATA_R & (1<<7) )   ) 
+	{
+		wait(77);
+		micro_seconds++;
+		
+		
+	}*/
+		
+	
+		//time_now = 0xFFFFFF -NVIC_ST_CURRENT_R;
+		//distance=((double)time_now)/(80000000)*17150;
+	//	GPIO_PORTB_DATA_R=5;	
+	 // NVIC_ST_CTRL_R =0;
+		//wait_10msec(500);0xFFFFFF 
+	
+  	
+		
+		
+	// calculate time.
+	
+	//distance = time_now/928;
+	//3adad * time one cycle * 1M/58
+
+	//distance= micro_seconds/58;
+	
+	// Display distance.
+	GPIO_PORTB_DATA_R = (uint8_t)(distance)%10;
+	GPIO_PORTD_DATA_R = (uint8_t)(distance/10)%10;
+	GPIO_PORTE_DATA_R = (uint8_t)((distance/100)%10) << 1;
+	//GPIO_PORTB_DATA_R = (distance % 10);//multiple of 1
+	//distance /= 10;
+	//GPIO_PORTD_DATA_R = (distance % 10);//multiple of 10
+	//distance /= 10;
+	//GPIO_PORTE_DATA_R = ( (distance % 10) << 1 ); // multiple of 100
+	
+	wait_10msec(100);
+	NVIC_ST_CURRENT_R=0;
+	NVIC_ST_RELOAD_R=0xFFFFFF;
+	 // (e*10^2) + (d*10^1) + (b*1);
+	
+	 
+}
+
+
+int main()
+{
+	uint32_t timer;
+	timer=0;
+	GPIO_Init();
+	Systick_Init();
+	clock_init(80);
+	
+	
+	
+	while(1)
+	{
+		get_distance();
+		
+		
+	/*
+		GPIO_PORTE_DATA_R=timer<<1;
+		GPIO_PORTB_DATA_R=timer;
+		GPIO_PORTD_DATA_R=timer;
+		timer++;
+		timer=timer%10;
+		wait_10msec(100);
+		*?
+		
+	//	get_distance();
+	/* 
+		if(   (GPIO_PORTD_DATA_R & (1<<7) ) == (1<<7) ) //wait until echo goes from low to high, start the systick
+	 {
+	   GPIO_PORTB_DATA_R |= 1;
+	 }
+	 else
+	{
+		GPIO_PORTB_DATA_R &= ~1; 
+	}
+	*/
+	
+}
+
+	return 0;
+}
